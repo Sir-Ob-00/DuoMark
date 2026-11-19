@@ -1,0 +1,13 @@
+import { Router } from "express";
+import { requireAuth, requireRole } from "../middleware/auth.js";
+import * as controller from "../controllers/class-section.controller.js";
+import * as roster from "../controllers/roster.controller.js";
+export const classSectionRouter = Router();
+classSectionRouter.use((_request, response, next) => { response.setHeader("Cache-Control", "no-store"); next(); });
+classSectionRouter.use(requireAuth, requireRole("ADMIN", "LECTURER"));
+classSectionRouter.get("/", controller.listSections);
+classSectionRouter.post("/", requireRole("ADMIN"), controller.createSection);
+classSectionRouter.get("/:sectionId", controller.getSection);
+classSectionRouter.patch("/:sectionId", requireRole("ADMIN"), controller.updateSection);
+classSectionRouter.put("/:sectionId/roster/:studentId", requireRole("ADMIN"), roster.addStudent);
+classSectionRouter.delete("/:sectionId/roster/:studentId", requireRole("ADMIN"), roster.removeStudent);

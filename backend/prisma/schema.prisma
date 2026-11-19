@@ -1,0 +1,374 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+model Course {
+  id    Int    @id @default(autoincrement())
+  code  String @unique
+  title String
+  department String?
+  sections ClassSection[]
+  attendanceSessions AttendanceSession[]
+  auditEntries AuditEntry[]
+}
+
+model ClassSection {
+  id           String @id @default(uuid())
+  code         String
+  courseId     Int
+  course       Course @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  lecturerId   String
+  lecturer     Staff @relation(fields: [lecturerId], references: [id], onDelete: Restrict)
+  room         String
+  schedule     String
+  academicYear String
+  term         String
+  isFictional  Boolean @default(false)
+  auditEntries AuditEntry[]
+  rosterMemberships SectionRosterMembership[]
+  attendanceSessions AttendanceSession[]
+  @@unique([courseId, academicYear, term, code])
+  @@index([lecturerId])
+}
+
+model SectionRosterMembership {
+  sectionId String
+  section   ClassSection @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  studentId String
+  student   Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  addedAt   DateTime @default(now())
+  @@id([sectionId, studentId])
+  @@index([studentId])
+}
+
+enum StaffRole {
+  ADMIN
+  LECTURER
+}
+
+enum TerminalAvailability {
+  Available
+  Unavailable
+}
+
+model Terminal {
+  id           String @id
+  name         String
+  location     String
+  status       TerminalAvailability @default(Available)
+  isFictional  Boolean @default(false)
+  developmentDevices DevelopmentCheckInDevice[]
+  faceAttempts FaceVerificationAttempt[]
+  attendanceRecords AttendanceRecord[]
+  auditEntries AuditEntry[]
+  attendanceSessions AttendanceSession[]
+}
+
+enum AttendanceSessionStatus {
+  OPEN
+  CLOSED
+}
+
+model AttendanceSession {
+  id           String @id @default(uuid())
+  lecturerId   String
+  lecturer     Staff @relation(fields: [lecturerId], references: [id], onDelete: Restrict)
+  sectionId    String
+  section      ClassSection @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  terminalId   String
+  terminal     Terminal @relation(fields: [terminalId], references: [id], onDelete: Restrict)
+  courseId     Int
+  course       Course @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  courseCode   String
+  courseName   String
+  sectionCode  String
+  room         String
+  academicYear String
+  term         String
+  status       AttendanceSessionStatus @default(OPEN)
+  openedAt     DateTime @default(now())
+  closedAt     DateTime?
+  auditEntries AuditEntry[]
+  faceAttempts FaceVerificationAttempt[]
+  attendanceRecords AttendanceRecord[]
+  @@index([lecturerId, openedAt, id])
+  @@index([sectionId, lecturerId, openedAt])
+  @@index([terminalId, status])
+}
+
+enum StaffStatus {
+  Active
+  Inactive
+}
+
+model Staff {
+  id           String @id @default(uuid())
+  email        String @unique
+  name         String
+  passwordHash String?
+  role         StaffRole @default(LECTURER)
+  status       StaffStatus @default(Active)
+  sessions     StaffSession[]
+  verifiedConsents StudentConsent[]
+  auditEntries AuditEntry[] @relation("AuditActor")
+  lecturerAudits AuditEntry[] @relation("AuditLecturer")
+  captureAttempts CaptureAttempt[]
+  assignedSections ClassSection[]
+  attendanceSessions AttendanceSession[]
+}
+
+model StaffSession {
+  tokenHash String @id
+  staffId   String
+  staff     Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  @@index([staffId])
+  @@index([expiresAt])
+}
+
+model SignInLimit {
+  key       String @id
+  attempts  Int
+  expiresAt DateTime
+  @@index([expiresAt])
+}
+
+enum EnrollmentState {
+  Pending
+  Enrolled
+}
+
+model Student {
+  id                    String @id @default(uuid())
+  studentId             String @unique
+  name                  String
+  isFictional           Boolean @default(false)
+  fakeDeviceCandidates  DevelopmentCheckInDevice[]
+  faceAttempts          FaceVerificationAttempt[]
+  attendanceRecords     AttendanceRecord[]
+  program               String
+  department            String
+  level                 String
+  classSectionId        String
+  faceEnrollment        EnrollmentState @default(Pending)
+  fingerprintEnrollment EnrollmentState @default(Pending)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  consents              StudentConsent[]
+  auditEntries          AuditEntry[]
+  captureAttempts       CaptureAttempt[]
+  rosterMemberships     SectionRosterMembership[]
+  @@index([name, id])
+}
+
+model StudentConsent {
+  id               String @id @default(uuid())
+  studentId        String
+  student          Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  recordedAt       DateTime @default(now())
+  verifiedById     String
+  verifiedBy       Staff @relation(fields: [verifiedById], references: [id], onDelete: Restrict)
+  consentVersion   String?
+  consentReference String?
+  captureAttempts  CaptureAttempt[]
+  faceAttempts     FaceVerificationAttempt[]
+  @@index([studentId, recordedAt, id])
+}
+
+enum AuditAction {
+  STUDENT_CREATED
+  STUDENT_UPDATED
+  STUDENT_CONSENT_RECORDED
+  BIOMETRIC_REQUESTED
+  BIOMETRIC_COMPLETED
+  BIOMETRIC_CANCELLED
+  LECTURER_CREATED
+  LECTURER_UPDATED
+  LECTURER_STATUS_CHANGED
+  COURSE_CREATED
+  COURSE_UPDATED
+  CLASS_SECTION_CREATED
+  CLASS_SECTION_UPDATED
+  ROSTER_STUDENT_ADDED
+  ROSTER_STUDENT_REMOVED
+  LECTURER_INVITATION_ATTEMPTED
+  TERMINAL_REGISTERED
+  TERMINAL_UPDATED
+  TERMINAL_AVAILABILITY_CHANGED
+  SESSION_OPENED
+  SESSION_CLOSED
+  ATTENDANCE_RECORDED
+  REPORT_EXPORT_REPORTED
+}
+
+model AuditEntry {
+  id        String @id @default(uuid())
+  actorId   String?
+  actor     Staff? @relation("AuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+  deviceActorId String?
+  deviceActor DevelopmentCheckInDevice? @relation(fields: [deviceActorId], references: [id], onDelete: Restrict)
+  studentId String?
+  student   Student? @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  lecturerId String?
+  lecturer Staff? @relation("AuditLecturer", fields: [lecturerId], references: [id], onDelete: Restrict)
+  courseId Int?
+  course Course? @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  sectionId String?
+  section ClassSection? @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  terminalId String?
+  terminal Terminal? @relation(fields: [terminalId], references: [id], onDelete: Restrict)
+  attendanceSessionId String?
+  attendanceSession AttendanceSession? @relation(fields: [attendanceSessionId], references: [id], onDelete: Restrict)
+  attendanceRecordId String?
+  attendanceRecord AttendanceRecord? @relation(fields: [attendanceRecordId], references: [id], onDelete: Restrict)
+  reportId String?
+  exportRequestId String?
+  action    AuditAction
+  timestamp DateTime @default(now())
+  details   Json
+  @@index([studentId, timestamp])
+  @@index([actorId, timestamp])
+  @@index([lecturerId, timestamp])
+  @@index([courseId, timestamp])
+  @@index([sectionId, timestamp])
+  @@index([terminalId, timestamp])
+  @@index([attendanceSessionId, timestamp])
+  @@index([deviceActorId, timestamp])
+  @@index([attendanceRecordId])
+  @@index([timestamp, id])
+  @@unique([actorId, exportRequestId])
+}
+
+enum BiometricModality {
+  face
+  fingerprint
+}
+
+enum CaptureOperation {
+  ENROLL
+  REMOVE
+  RESET
+}
+
+enum CaptureStatus {
+  REQUESTED
+  COMPLETED
+  CANCELLED
+}
+
+model CaptureAttempt {
+  id                  String @id @default(uuid())
+  requestId           String @unique
+  studentId           String
+  student             Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  modality            BiometricModality
+  operation           CaptureOperation
+  status              CaptureStatus @default(REQUESTED)
+  actorId             String
+  actor               Staff @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  consentId           String?
+  consent             StudentConsent? @relation(fields: [consentId], references: [id], onDelete: Restrict)
+  identityIndexNumber String?
+  serviceId           String
+  deviceId            String
+  requestedAt         DateTime @default(now())
+  expiresAt           DateTime?
+  completedAt         DateTime?
+  confirmationEventId String? @unique
+  @@index([studentId, modality, requestedAt])
+}
+
+enum FakeFaceOutcome {
+  MATCH
+  NO_MATCH
+}
+
+model DevelopmentCheckInDevice {
+  id              String @id @default(uuid())
+  terminalId      String
+  terminal        Terminal @relation(fields: [terminalId], references: [id], onDelete: Restrict)
+  credentialHash  String @unique
+  active          Boolean @default(true)
+  faceChallengeId String?
+  fakeStudentId   String?
+  fakeStudent     Student? @relation(fields: [fakeStudentId], references: [id], onDelete: Restrict)
+  fakeFaceOutcome FakeFaceOutcome @default(NO_MATCH)
+  fakeFingerprintOutcome FakeFaceOutcome @default(NO_MATCH)
+  faceAttempts    FaceVerificationAttempt[]
+  attendanceRecords AttendanceRecord[]
+  auditEntries AuditEntry[]
+  @@index([terminalId])
+}
+
+enum FaceAttemptStatus {
+  WAITING_FINGERPRINT
+  INVALIDATED
+  CONSUMED
+}
+
+model FaceVerificationAttempt {
+  id                  String @id @default(uuid())
+  tokenHash           String @unique
+  deviceId            String
+  device              DevelopmentCheckInDevice @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  terminalId          String
+  terminal            Terminal @relation(fields: [terminalId], references: [id], onDelete: Restrict)
+  attendanceSessionId String
+  attendanceSession   AttendanceSession @relation(fields: [attendanceSessionId], references: [id], onDelete: Restrict)
+  studentId           String
+  student             Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  consentId           String
+  consent             StudentConsent @relation(fields: [consentId], references: [id], onDelete: Restrict)
+  serviceId           String
+  challengeId         String @unique
+  developmentOnly     Boolean @default(true)
+  status              FaceAttemptStatus @default(WAITING_FINGERPRINT)
+  createdAt           DateTime @default(now())
+  expiresAt           DateTime
+  fingerprintChallengeId String? @unique
+  fingerprintServiceId String?
+  finalizedAt         DateTime?
+  completionOutcome   CheckInCompletionOutcome?
+  attendanceRecordId  String?
+  attendanceRecord    AttendanceRecord? @relation(fields: [attendanceRecordId], references: [id], onDelete: Restrict)
+  @@index([deviceId, status])
+  @@index([attendanceSessionId])
+  @@index([expiresAt])
+}
+
+enum CheckInCompletionOutcome {
+  RECORDED
+  ALREADY_RECORDED
+}
+
+model AttendanceRecord {
+  id                 String @id @default(uuid())
+  sessionId          String
+  session            AttendanceSession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  studentId          String
+  student            Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  studentIndexNumber String
+  studentName        String
+  deviceId           String
+  device             DevelopmentCheckInDevice @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  terminalId         String
+  terminal           Terminal @relation(fields: [terminalId], references: [id], onDelete: Restrict)
+  recordedAt         DateTime @default(now())
+  developmentOnly    Boolean @default(true)
+  faceAttempts       FaceVerificationAttempt[]
+  auditEntries       AuditEntry[]
+  @@unique([sessionId, studentId])
+  @@index([sessionId, recordedAt, id])
+  @@index([recordedAt, id])
+}

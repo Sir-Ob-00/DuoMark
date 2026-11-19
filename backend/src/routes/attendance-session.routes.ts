@@ -1,0 +1,10 @@
+import { Router } from "express";
+import { requireAuth, requireRole } from "../middleware/auth.js";
+import * as controller from "../controllers/attendance-session.controller.js";
+export const attendanceSessionRouter = Router();
+attendanceSessionRouter.use((_request, response, next) => { response.setHeader("Cache-Control", "no-store"); next(); });
+attendanceSessionRouter.use(requireAuth, requireRole("LECTURER"));
+attendanceSessionRouter.get("/", controller.listSessions);
+attendanceSessionRouter.post("/", controller.openSession);
+attendanceSessionRouter.get("/:sessionId", controller.getSession);
+attendanceSessionRouter.post("/:sessionId/close", controller.closeSession);
