@@ -12,6 +12,7 @@ export async function adminOverview(now = new Date()) {
   const { context, recordedAt } = todayContext(now);
   return prisma.$transaction(async tx => {
     const studentProfiles = await tx.student.count();
+    const lecturers = await tx.staff.count({ where: { role: "LECTURER" } });
     const faceEnrolledStudents = await tx.student.count({ where: { faceEnrollment: "Enrolled" } });
     const fingerprintEnrolledStudents = await tx.student.count({ where: { fingerprintEnrollment: "Enrolled" } });
     const openSessions = await tx.attendanceSession.count({ where: { status: "OPEN" } });
@@ -20,7 +21,7 @@ export async function adminOverview(now = new Date()) {
     const totalTerminals = await tx.terminal.count();
     const attendanceRecords = await tx.attendanceRecord.count();
     const checkInsToday = await tx.attendanceRecord.count({ where: { recordedAt } });
-    return { counts: { studentProfiles, faceEnrolledStudents, fingerprintEnrolledStudents, openSessions, totalSessions, availableTerminals, totalTerminals, attendanceRecords, checkInsToday }, context };
+    return { counts: { studentProfiles, lecturers, faceEnrolledStudents, fingerprintEnrolledStudents, openSessions, totalSessions, availableTerminals, totalTerminals, attendanceRecords, checkInsToday }, context };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
 }
 export async function lecturerOverview(lecturerId: string, now = new Date()) {

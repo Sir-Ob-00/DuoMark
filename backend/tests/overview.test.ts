@@ -65,6 +65,7 @@ test("overview aggregates: database totals, UTC boundaries, pagination and lectu
     const admin = await adminResponse.json();
     assert.deepEqual(admin, await adminOverview(now));
     assert.deepEqual(admin.counts, {
+      lecturers: await prisma.staff.count({ where: { role: "LECTURER" } }),
       studentProfiles: await prisma.student.count(), faceEnrolledStudents: await prisma.student.count({ where: { faceEnrollment: "Enrolled" } }), fingerprintEnrolledStudents: await prisma.student.count({ where: { fingerprintEnrollment: "Enrolled" } }),
       openSessions: await prisma.attendanceSession.count({ where: { status: "OPEN" } }), totalSessions: await prisma.attendanceSession.count(), availableTerminals: await prisma.terminal.count({ where: { status: "Available" } }), totalTerminals: await prisma.terminal.count(), attendanceRecords: await prisma.attendanceRecord.count(), checkInsToday: await prisma.attendanceRecord.count({ where: { recordedAt: { gte: start, lt: end } } }),
     });

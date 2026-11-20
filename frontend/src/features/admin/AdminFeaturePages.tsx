@@ -79,6 +79,7 @@ export function AdminOverviewPage() {
     {!overview.data || !sessions.data ? errors.length > 0 ? null : <LoadingState label="Loading operational overview…" /> : <>
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <MetricLink title="Student profiles" value={overview.data.studentProfiles} detail="Browse students" to="/admin/students" tone="teal" />
+        <MetricLink title="Lecturers" value={overview.data.lecturers} detail="Manage lecturers" to="/admin/staff" tone="blue" />
         <MetricLink title="Face enrollment" value={`${overview.data.faceEnrolledStudents}/${overview.data.studentProfiles}`} detail="Open enrollment queue" to="/admin/enrollment" tone="blue" />
         <MetricLink title="Fingerprint enrollment" value={`${overview.data.fingerprintEnrolledStudents}/${overview.data.studentProfiles}`} detail="Open enrollment queue" to="/admin/enrollment" tone="violet" />
         <MetricLink title="Active sessions" value={overview.data.openSessions} detail="View session history" to="/admin/sessions" tone="amber" />

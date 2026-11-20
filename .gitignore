@@ -1,0 +1,14 @@
+# Local terminal data and secrets
+**/__pycache__/
+*.py[cod]
+biometric-terminal/.venv/
+biometric-terminal/.env
+biometric-terminal/.env.*
+!biometric-terminal/.env.example
+biometric-terminal/models/
+biometric-terminal/logs/
+biometric-terminal/exports/
+biometric-terminal/data/
+biometric-terminal/vendor/
+biometric-terminal/*.log
+*.face.json
