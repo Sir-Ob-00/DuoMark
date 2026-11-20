@@ -59,7 +59,9 @@ test("lecturer directory, provisioning separation, audits and durable session re
     await assert.rejects(prisma.staff.create({ data: { email: targetEmail.toUpperCase(), name: "Duplicate" } }));
     const detail = await request(`${root}/${lecturer.id}`);
     assert.equal(detail.status, 200);
-    assert.deepEqual((await detail.json()).lecturer, { ...lecturer, assignedClasses: [] });
+    assert.deepEqual((await detail.json()).lecturer, { ...lecturer, assignedClasses: [], accountSetup: {
+      status: "AWAITING_SETUP", lastInvitationAt: null, expiresAt: null, deliveryStatus: null, canInvite: true,
+    } });
     for (const bad of [{ name: "" }, { email: "invalid" }, { role: "ADMIN" }, { password: "forbidden" }, { passwordHash: "forbidden" }, { status: "Inactive" }, {}, null, []]) {
       assert.equal((await request(`${root}/${lecturer.id}`, "PATCH", bad)).status, 400);
     }

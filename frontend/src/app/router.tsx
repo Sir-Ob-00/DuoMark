@@ -10,12 +10,14 @@ import { TerminalPage } from '../features/terminal/TerminalPage'
 import { AdminLayout, LecturerLayout } from '../layouts/StaffLayouts'
 import { TerminalLayout } from '../layouts/TerminalLayout'
 import { AdminReportsPage } from '../features/reports/AdminReportsPage'
+import { LecturerActivationPage } from '../features/auth/LecturerActivationPage'
 
 export function AppRouter() {
   return <BrowserRouter>
     <AuthProvider>
       <Routes>
         <Route path="/" element={<HomeRedirect />} />
+        <Route path="/activate-lecturer" element={<LecturerActivationPage />} />
         <Route element={<SignInOnly />}>
           <Route path="/login" element={<SignInPage />} />
         </Route>

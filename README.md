@@ -1,3 +1,5 @@
+[Live frontend/backend integration map, verification and blockers](frontend/INTEGRATION.md)
+
 multimodal-biometric-attendance/
 ├── README.md
 ├── .gitignore

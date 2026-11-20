@@ -35,18 +35,11 @@ export interface StudentInput {
 }
 
 export type BiometricModality = 'face' | 'fingerprint'
-export type EnrollmentOutcome = 'success' | 'retry' | 'device-unavailable'
-
 export interface EnrollmentRecord {
   studentId: string
   consentRecorded: boolean
   face: 'Enrolled' | 'Pending'
   fingerprint: 'Enrolled' | 'Pending'
-}
-
-export interface EnrollmentCaptureResult {
-  outcome: EnrollmentOutcome
-  message: string
 }
 
 export interface StaffAccount {
@@ -78,6 +71,8 @@ export interface ClassSection {
   room: string
   schedule: string
   studentIds: string[]
+  academicYear?: string
+  term?: string
 }
 
 export interface Terminal {
@@ -111,6 +106,8 @@ export interface AttendanceRecord {
   status: 'Present' | 'Already recorded'
   sessionId?: string
   sessionDate?: string
+  indexNumber?: string
+  recordedAt?: string
 }
 
 export interface AttendanceSession {
@@ -120,7 +117,7 @@ export interface AttendanceSession {
   sectionCode?: string
   room: string
   startsAt: string
-  status: 'Open' | 'Scheduled' | 'Closed'
+  status: 'Open' | 'Closed'
   lecturerId: string
   sectionId: string
   date: string
@@ -136,49 +133,18 @@ export interface SessionDetail extends AttendanceSession {
 export interface LecturerClass extends ClassSection {
   courseCode: string
   courseName: string
-  students: Student[]
+  students: Pick<Student, 'id' | 'studentId' | 'name'>[]
   recentSessions: AttendanceSession[]
 }
 
-export interface TerminalSessionContext {
-  terminal: Terminal
-  session: SessionDetail | null
-}
-
-export type TerminalDemoOutcome =
-  | 'face-match'
-  | 'face-retry'
-  | 'fingerprint-success'
-  | 'fingerprint-mismatch'
-  | 'device-unavailable'
-  | 'duplicate'
-  | 'session-closed'
-  | 'connection-interrupted'
-
-export type TerminalCheckInResult =
-  | { outcome: 'face-match'; message: string }
-  | { outcome: 'attendance-recorded'; record: AttendanceRecord; message: string }
-  | { outcome: 'already-recorded' | 'retry-face' | 'retry-fingerprint' | 'session-closed' | 'device-unavailable' | 'connection-interrupted'; message: string }
-
-export interface DashboardSummary {
-  students: number
-  activeSessions: number
-  attendanceToday: number
-  biometricEnrollment: number
-}
-
 export interface AttendanceApi {
-  readonly mode: 'demo' | 'live'
   getCurrentUser(): Promise<StaffUser | null>
   signIn(credentials: SignInCredentials): Promise<StaffUser>
   signOut(): Promise<void>
-  getDashboardSummary(): Promise<DashboardSummary>
   getStudents(): Promise<Student[]>
   saveStudent(input: StudentInput, id?: string): Promise<Student>
   getEnrollmentRecord(studentId: string): Promise<EnrollmentRecord>
   recordEnrollmentConsent(studentId: string): Promise<EnrollmentRecord>
-  captureBiometric(studentId: string, modality: BiometricModality, outcome: EnrollmentOutcome): Promise<EnrollmentCaptureResult>
-  resetBiometricEnrollment(studentId: string, modality: BiometricModality, action: 'reenroll' | 'remove'): Promise<EnrollmentRecord>
   getStaff(): Promise<StaffAccount[]>
   saveStaff(input: StaffInput, id?: string): Promise<StaffAccount>
   setStaffStatus(id: string, status: StaffAccount['status']): Promise<StaffAccount>
@@ -198,11 +164,7 @@ export interface AttendanceApi {
   getLecturerSessionDetail(id: string): Promise<SessionDetail>
   openLecturerSession(sectionId: string, terminalId: string): Promise<AttendanceSession>
   closeLecturerSession(sessionId: string): Promise<AttendanceSession>
-  getTerminalSessionContext(terminalId?: string): Promise<TerminalSessionContext>
   getAttendanceRecords(): Promise<AttendanceRecord[]>
-  recordReportExport(target: string): Promise<void>
-  runTerminalCheckIn(studentId: string, terminalId: string, outcome: TerminalDemoOutcome, signal?: AbortSignal): Promise<TerminalCheckInResult>
-  recordTerminalAttendance(studentId: string, terminalId?: string): Promise<AttendanceRecord>
   subscribe(listener: () => void): () => void
   getRevision(): number
 }

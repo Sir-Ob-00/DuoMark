@@ -5,7 +5,9 @@ import { api } from '../../api/client'
 import type { AttendanceSession, AuditEvent, ClassSection, Course, StaffAccount, Student, StudentInput, Terminal, TerminalInput } from '../../api/types'
 import { staffJson } from '../../api/http'
 import type { AdminOverview } from '../../api/overview'
-import { useApiRevision } from '../../api/useDemoRevision'
+import { LecturerInvitation } from './LecturerInvitation'
+import { StudentImportDialog } from './StudentImportDialog'
+import { useApiRevision } from '../../api/useApiRevision'
 import { Button, DataTable, Dialog, StatusBadge, TextField } from '../../components/ui'
 import { EmptyState, ErrorState, LoadingState } from '../../components/feedback'
 import { downloadAttendanceCsv } from '../reports/attendanceCsv'
@@ -41,14 +43,10 @@ function useResource<T>(load: () => Promise<T>, resourceKey = ''): { data: T | n
 
 function useAdminData() {
   const overview = useResource(async () => {
-    if (api.mode === 'live') return (await staffJson<AdminOverview>('/admin/overview')).counts
-    const [students, sessions, terminals] = await Promise.all([api.getStudents(), api.getSessions(), api.getTerminals()])
-    return { studentProfiles: students.length, faceEnrolledStudents: students.filter(student => student.faceEnrollment === 'Enrolled').length,
-      fingerprintEnrolledStudents: students.filter(student => student.fingerprintEnrollment === 'Enrolled').length,
-      openSessions: sessions.filter(session => session.status === 'Open').length, availableTerminals: terminals.filter(terminal => terminal.status === 'Available').length, totalTerminals: terminals.length }
+    return (await staffJson<AdminOverview>('/admin/overview')).counts
   })
-  const sessions = useResource(async () => api.mode === 'live' ? (await staffJson<{ sessions: AttendanceSession[] }>('/admin/sessions?limit=4')).sessions : api.getSessions())
-  const audit = useResource(async () => api.mode === 'live' ? (await staffJson<{ auditEvents: AuditEvent[] }>('/admin/audit-events?limit=5')).auditEvents : api.getAuditEvents())
+  const sessions = useResource(async () => (await staffJson<{ sessions: AttendanceSession[] }>('/admin/sessions?limit=4')).sessions)
+  const audit = useResource(async () => (await staffJson<{ auditEvents: AuditEvent[] }>('/admin/audit-events?limit=5')).auditEvents)
   return { overview, sessions, audit }
 }
 
@@ -90,7 +88,7 @@ export function AdminOverviewPage() {
         <TableSection title="Recent sessions" description="Institution-wide attendance sessions">
           {sessions.data.length === 0 ? <EmptyState title="No sessions yet" /> : <DataTable caption="Recent attendance sessions" rows={sessions.data.slice(0, 4)} rowKey={(row) => row.id} columns={[
             { key: 'course', header: 'Course / section', render: (row) => <><strong>{row.courseCode} · {row.courseName}</strong><span className="block text-xs text-muted-slate">{row.room}</span></> },
-            { key: 'status', header: 'Status', render: (row) => <StatusBadge tone={row.status === 'Open' ? 'success' : row.status === 'Scheduled' ? 'info' : 'neutral'}>{row.status}</StatusBadge> },
+            { key: 'status', header: 'Status', render: (row) => <StatusBadge tone={row.status === 'Open' ? 'success' : 'neutral'}>{row.status}</StatusBadge> },
             { key: 'view', header: '', render: (row) => <Link className="font-semibold text-deep-teal hover:underline" to={`/admin/sessions/${row.id}`}>Details</Link> },
           ]} />}
         </TableSection>
@@ -110,6 +108,8 @@ const emptyStudent: StudentInput = { studentId: '', name: '', program: '', depar
 
 export function AdminStudentsPage() {
   const revision = useApiRevision()
+  const [importOpen, setImportOpen] = useState(false)
+  const [importRevision, setImportRevision] = useState(0)
   const [searchParams, setSearchParams] = useSearchParams()
   const [students, setStudents] = useState<Student[] | null>(null)
   const [sections, setSections] = useState<ClassSection[]>([])
@@ -131,7 +131,7 @@ export function AdminStudentsPage() {
       if (active) setError(reason instanceof Error ? reason.message : 'Unable to load student records.')
     })
     return () => { active = false }
-  }, [revision])
+  }, [revision, importRevision])
 
   useEffect(() => {
     const editId = searchParams.get('edit')
@@ -185,17 +185,18 @@ export function AdminStudentsPage() {
     { key: 'program', label: 'Programme', values: programs },
     { key: 'department', label: 'Department', values: departments },
     { key: 'level', label: 'Level', values: levels },
-    { key: 'classSectionId', label: 'Class section', values: sections.map((section) => section.code) },
+    { key: 'classSectionId', label: 'Class section', values: sections.map((section) => section.id) },
     { key: 'status', label: 'Enrollment', values: ['Enrolled', 'Pending'] },
   ] as const
 
   return <>
-    <PageHeader title="Students" description="Search profiles, manage class assignments, and review biometric enrollment." action={<Button onClick={() => openForm()}>Add student</Button>} />
+    <PageHeader title="Students" description="Search profiles, manage class assignments, and review biometric enrollment." action={<div className="flex gap-2"><Button variant="secondary" onClick={() => setImportOpen(true)}>Import Students</Button><Button onClick={() => openForm()}>Add student</Button></div>} />
+    <StudentImportDialog open={importOpen} sections={sections} onClose={() => setImportOpen(false)} onSuccess={count => { setSaveMessage(`${count} student profiles imported successfully.`); setImportRevision(value => value + 1) }} />
     {saveMessage && <p className="mb-5 rounded-lg bg-success-bg p-3 text-sm text-success" role="status">{saveMessage}</p>}
     <section className={`${surface} mb-5 p-4`}>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <label className="grid gap-1 text-xs font-semibold text-muted-slate sm:col-span-2 xl:col-span-1">Search name or student ID<input className={selectClass} type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search students" /></label>
-        {filtersList.map((filter) => <label className="grid gap-1 text-xs font-semibold text-muted-slate" key={filter.key}>{filter.label}<select className={selectClass} value={filter.key === 'classSectionId' ? sections.find((section) => section.id === filters.classSectionId)?.code ?? '' : filters[filter.key]} onChange={(event) => setFilters((current) => ({ ...current, [filter.key]: filter.key === 'classSectionId' ? sections.find((section) => section.code === event.target.value)?.id ?? '' : event.target.value }))}><option value="">All</option>{filter.values.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}
+        {filtersList.map((filter) => <label className="grid gap-1 text-xs font-semibold text-muted-slate" key={filter.key}>{filter.label}<select className={selectClass} value={filters[filter.key]} onChange={(event) => setFilters((current) => ({ ...current, [filter.key]: event.target.value }))}><option value="">All</option>{filter.values.map((value) => { const section = filter.key === 'classSectionId' ? sections.find(row => row.id === value) : undefined; return <option key={value} value={value}>{section ? `${section.code} · ${section.academicYear ?? ''} · ${section.term ?? ''}` : value}</option> })}</select></label>)}
       </div>
     </section>
     {error ? <ErrorState title="Student list unavailable" message={error} /> : !students ? <LoadingState label="Loading students…" /> : <TableSection title="Student directory" description={`${filtered.length} of ${students.length} profiles`}>
@@ -215,6 +216,7 @@ export function AdminStudentsPage() {
         <TextField label="Programme" name="student-program" required value={form.program} onChange={(event) => setForm((current) => ({ ...current, program: event.target.value }))} />
         <TextField label="Department" name="student-department" required value={form.department} onChange={(event) => setForm((current) => ({ ...current, department: event.target.value }))} />
         <TextField label="Level" name="student-level" required pattern="[1-9][0-9]{0,2}" title="Enter a numeric level such as 100, 200 or 300." value={form.level} onChange={(event) => setForm((current) => ({ ...current, level: event.target.value }))} />
+        <p className="text-xs text-muted-slate">The profile class field does not add roster membership. Manage rosters in Courses & class sections.</p>
         <label className="grid gap-1.5 text-sm font-semibold text-ink">Class section<select className={selectClass} required value={form.classSectionId} onChange={(event) => setForm((current) => ({ ...current, classSectionId: event.target.value }))}><option value="">Select a section</option>{sections.map((section) => <option key={section.id} value={section.id}>{section.code}</option>)}</select></label>
         {formError && <p className="rounded-lg bg-error-bg p-3 text-error" role="alert">{formError}</p>}
         <div className="flex justify-end gap-2"><Button variant="secondary" type="button" onClick={() => setDialogOpen(false)}>Cancel</Button><Button disabled={saving}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Create student'}</Button></div>
@@ -225,7 +227,7 @@ export function AdminStudentsPage() {
 
 export function StudentDetailsPage() {
   const { studentId = '' } = useParams()
-  const { data: students, error } = useResource(() => api.getStudents(), studentId)
+  const { data: students, error } = useResource(async () => [(await staffJson<{ student: Student }>(`/admin/students/${studentId}`)).student], studentId)
   const { data: sections } = useResource(() => api.getSections())
   const student = students?.find((row) => row.id === studentId)
   if (error) return <ErrorState title="Student details unavailable" message={error} />
@@ -285,16 +287,16 @@ export function AdminStaffPage() {
     if (!window.confirm(`${status === 'Inactive' ? 'Deactivate' : 'Activate'} ${account.name}'s account?`)) return
     setActionError(null)
     setActionMessage(null)
-    try { await api.setStaffStatus(account.id, status); setActionMessage(`${account.name}'s fictional account is now ${status.toLowerCase()}.`) }
+    try { await api.setStaffStatus(account.id, status); setActionMessage(`${account.name}'s profile is now ${status.toLowerCase()}.`) }
     catch (reason) { setActionError(reason instanceof Error ? reason.message : 'Unable to update account status.') }
   }
 
   return <>
-    <PageHeader title="Lecturers" description="Manage fictional lecturer profiles, class assignments, and account status." action={<Button onClick={() => openEditor()}>Add lecturer</Button>} />
+    <PageHeader title="Lecturers" description="Manage lecturer profiles, class assignments, and status." action={<Button onClick={() => openEditor()}>Add lecturer</Button>} />
     {actionMessage && <p className="mb-5 rounded-lg bg-success-bg p-3 text-sm text-success" role="status">{actionMessage}</p>}
     {actionError && <ErrorState title="Could not update lecturer" message={actionError} />}
-    <div className="mb-5 rounded-lg border border-info/20 bg-info-bg p-4 text-sm text-info"><strong>Account setup:</strong> Demo mode creates fictional records only. Passwords and invitations are managed by the backend and are not collected here.</div>
-    {error ? <ErrorState title="Lecturer list unavailable" message={error} /> : !accounts ? <LoadingState label="Loading lecturers…" /> : sectionsResource.error || coursesResource.error ? <ErrorState title="Lecturer assignments unavailable" message={sectionsResource.error ?? coursesResource.error ?? 'Unable to load lecturer assignments.'} /> : !sections || !courses ? <LoadingState label="Loading lecturer assignments…" /> : <TableSection title="Lecturer directory" description={`${accounts.filter((account) => account.role === 'lecturer').length} lecturers · fictional demo accounts`}>
+    <div className="mb-5 rounded-lg border border-info/20 bg-info-bg p-4 text-sm text-info"><strong>Account setup:</strong> Create the lecturer profile, then open its details and send an invitation. The lecturer sets their own password through the emailed activation link.</div>
+    {error ? <ErrorState title="Lecturer list unavailable" message={error} /> : !accounts ? <LoadingState label="Loading lecturers…" /> : sectionsResource.error || coursesResource.error ? <ErrorState title="Lecturer assignments unavailable" message={sectionsResource.error ?? coursesResource.error ?? 'Unable to load lecturer assignments.'} /> : !sections || !courses ? <LoadingState label="Loading lecturer assignments…" /> : <TableSection title="Lecturer directory" description={`${accounts.filter((account) => account.role === 'lecturer').length} lecturers`}>
       {accounts.filter((account) => account.role === 'lecturer').length === 0 ? <EmptyState title="No lecturers yet" /> : <DataTable caption="Lecturer directory" rows={accounts.filter((account) => account.role === 'lecturer')} rowKey={(account) => account.id} columns={[
         { key: 'name', header: 'Staff member', render: (account) => <><Link className="font-semibold text-deep-teal hover:underline" to={`/admin/staff/${account.id}`}>{account.name}</Link><span className="block text-xs text-muted-slate">{account.email}</span></> },
         { key: 'role', header: 'Role', render: (account) => <span className="capitalize">{account.role}</span> },
@@ -317,7 +319,7 @@ export function AdminStaffPage() {
 
 export function AdminStaffDetailsPage() {
   const { staffId = '' } = useParams()
-  const { data: accounts, error } = useResource(() => api.getStaff(), staffId)
+  const { data: accounts, error } = useResource(async () => [{ ...(await staffJson<{ lecturer: Omit<StaffAccount, 'role'> }>(`/admin/lecturers/${staffId}`)).lecturer, role: 'lecturer' as const }], staffId)
   const sectionsResource = useResource(() => api.getSections())
   const coursesResource = useResource(() => api.getCourses())
   const sections = sectionsResource.data
@@ -329,14 +331,15 @@ export function AdminStaffDetailsPage() {
   if (!account || account.role !== 'lecturer') return <EmptyState title="Lecturer profile not found">Return to the <Link className="text-deep-teal underline" to="/admin/staff">lecturer list</Link>.</EmptyState>
   const assignments = sections.filter((section) => section.lecturerId === account.id)
   return <>
-    <PageHeader title={account.name} description="Fictional lecturer profile and class assignments." action={<Link className={secondaryButton} to="/admin/staff">Back to lecturers</Link>} />
+    <PageHeader title={account.name} description="Lecturer profile and class assignments." action={<Link className={secondaryButton} to="/admin/staff">Back to lecturers</Link>} />
     <section className={`${surface} mb-5 p-5`}>
       <dl className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
         <Detail label="Email" value={account.email} />
         <Detail label="Account status" value={account.status} />
         <Detail label="Assigned classes" value={`${assignments.length}`} />
       </dl>
-      <p className="mt-4 mb-0 rounded-lg bg-info-bg p-3 text-sm text-info">Demo account records do not provision real accounts or enforce production access.</p>
+      <p className="mt-4 mb-0 rounded-lg bg-info-bg p-3 text-sm text-info">Profile status and sign-in provisioning are separate. Deactivation revokes existing staff sessions.</p>
+      <LecturerInvitation key={account.id} lecturerId={account.id} />
     </section>
     <TableSection title="Assigned classes" description="Assignments are managed in Courses & Classes.">
       {assignments.length === 0 ? <EmptyState title="No assigned classes" /> : <DataTable caption="Lecturer class assignments" rows={assignments} rowKey={(section) => section.id} columns={[
@@ -363,22 +366,33 @@ export function AdminCoursesPage() {
   const [editingCourse, setEditingCourse] = useState<Course | null>(null)
   const [editingSection, setEditingSection] = useState<ClassSection | null>(null)
   const [courseForm, setCourseForm] = useState({ code: '', name: '', department: '' })
-  const [sectionForm, setSectionForm] = useState({ code: '', courseId: '', lecturerId: '', room: '', schedule: '' })
+  const [sectionForm, setSectionForm] = useState({ code: '', courseId: '', lecturerId: '', room: '', schedule: '', academicYear: '', term: '' })
   const [rosterStudent, setRosterStudent] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
 
   async function saveCourse(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (saving) return
     event.preventDefault(); setError(null); setMessage(null)
+    setSaving(true)
     try { await api.saveCourse(courseForm, editingCourse?.id); setCourseOpen(false); setMessage(`${courseForm.code.trim()} was ${editingCourse ? 'updated' : 'created'}.`) }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to save course.') }
+    finally { setSaving(false) }
   }
   async function saveSection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (saving) return
     event.preventDefault(); setError(null); setMessage(null)
+    setSaving(true)
     try { await api.saveSection({ ...sectionForm, studentIds: editingSection?.studentIds ?? [] }, editingSection?.id); setSectionOpen(false); setMessage(`${sectionForm.code.trim()} was ${editingSection ? 'updated' : 'created'}.`) }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to save class section.') }
+    finally { setSaving(false) }
   }
   async function changeRoster(section: ClassSection, action: 'add' | 'remove', studentId: string) {
+    if (saving) return
+    setSaving(true)
     setError(null); setMessage(null)
     try {
       await api.updateSectionRoster(section.id, studentId, action)
@@ -386,12 +400,13 @@ export function AdminCoursesPage() {
       setMessage(`${student?.name ?? 'Student'} was ${action === 'add' ? 'added to' : 'removed from'} ${section.code}.`)
     }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to update class roster.') }
+    finally { setSaving(false) }
   }
 
   const busy = !courses || !sections || !staff || !students
   const loadError = coursesResource.error || sectionsResource.error || staffResource.error || studentsResource.error
   return <>
-    <PageHeader title="Courses & class sections" description="Manage the course catalogue, lecturer assignments, and student rosters." action={<div className="flex gap-2"><Button variant="secondary" onClick={() => { setEditingCourse(null); setCourseForm({ code: '', name: '', department: '' }); setCourseOpen(true) }}>Add course</Button><Button onClick={() => { setEditingSection(null); setSectionForm({ code: '', courseId: '', lecturerId: '', room: '', schedule: '' }); setSectionOpen(true) }}>Add section</Button></div>} />
+    <PageHeader title="Courses & class sections" description="Manage the course catalogue, lecturer assignments, and student rosters." action={<div className="flex gap-2"><Button variant="secondary" onClick={() => { setEditingCourse(null); setCourseForm({ code: '', name: '', department: '' }); setCourseOpen(true) }}>Add course</Button><Button onClick={() => { setEditingSection(null); setSectionForm({ code: '', courseId: '', lecturerId: '', room: '', schedule: '', academicYear: '', term: '' }); setSectionOpen(true) }}>Add section</Button></div>} />
     {loadError ? <ErrorState title="Course data unavailable" message={loadError} /> : busy ? <LoadingState label="Loading courses and rosters…" /> : <>
       {error && <ErrorState title="Could not update records" message={error} />}
       {message && <p className="mb-5 rounded-lg bg-success-bg p-3 text-sm text-success" role="status">{message}</p>}
@@ -409,12 +424,12 @@ export function AdminCoursesPage() {
         const members = section.studentIds.map((id) => students.find((student) => student.id === id)).filter((student): student is Student => Boolean(student))
         const options = students.filter((student) => !section.studentIds.includes(student.id))
         return <section className={`${surface} mb-5 overflow-hidden`} key={section.id}>
-          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-light-border p-5"><div><p className="mb-1 text-xs font-bold tracking-wide text-muted-slate uppercase">{course?.code ?? 'Course unavailable'}</p><h2 className={headerTitle}>{section.code}</h2><p className="mt-1 mb-0 text-sm text-muted-slate">{course?.name} · {section.room} · {section.schedule}</p></div><div className="flex items-start gap-5"><div className="text-sm"><p className="mb-1 text-xs text-muted-slate">Assigned lecturer</p><strong>{lecturer?.name ?? 'Unassigned'}</strong></div><button className="font-semibold text-deep-teal hover:underline" type="button" onClick={() => { setEditingSection(section); setSectionForm({ code: section.code, courseId: section.courseId, lecturerId: section.lecturerId, room: section.room, schedule: section.schedule }); setSectionOpen(true) }}>Edit section</button></div></div>
-          <div className="flex flex-wrap items-end gap-2 p-4"><label className="grid gap-1 text-xs font-semibold text-muted-slate">Add student to roster<select className={selectClass} value={rosterStudent[section.id] ?? ''} onChange={(event) => setRosterStudent((current) => ({ ...current, [section.id]: event.target.value }))}><option value="">Select a student</option>{options.map((student) => <option value={student.id} key={student.id}>{student.name} · {student.studentId}</option>)}</select></label><Button variant="secondary" disabled={!rosterStudent[section.id]} onClick={() => void changeRoster(section, 'add', rosterStudent[section.id])}>Add to roster</Button></div>
+          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-light-border p-5"><div><p className="mb-1 text-xs font-bold tracking-wide text-muted-slate uppercase">{course?.code ?? 'Course unavailable'}</p><h2 className={headerTitle}>{section.code}</h2><p className="mt-1 mb-0 text-sm text-muted-slate">{course?.name} · {section.room} · {section.schedule}</p></div><div className="flex items-start gap-5"><div className="text-sm"><p className="mb-1 text-xs text-muted-slate">Assigned lecturer</p><strong>{lecturer?.name ?? 'Unassigned'}</strong></div><button className="font-semibold text-deep-teal hover:underline" type="button" onClick={() => { setEditingSection(section); setSectionForm({ code: section.code, courseId: section.courseId, lecturerId: section.lecturerId, room: section.room, schedule: section.schedule, academicYear: section.academicYear ?? '', term: section.term ?? '' }); setSectionOpen(true) }}>Edit section</button></div></div>
+          <div className="flex flex-wrap items-end gap-2 p-4"><label className="grid gap-1 text-xs font-semibold text-muted-slate">Add student to roster<select className={selectClass} value={rosterStudent[section.id] ?? ''} onChange={(event) => setRosterStudent((current) => ({ ...current, [section.id]: event.target.value }))}><option value="">Select a student</option>{options.map((student) => <option value={student.id} key={student.id}>{student.name} · {student.studentId}</option>)}</select></label><Button variant="secondary" disabled={saving || !rosterStudent[section.id]} onClick={() => void changeRoster(section, 'add', rosterStudent[section.id])}>Add to roster</Button></div>
           {members.length === 0 ? <EmptyState title="Roster is empty">Add a student to this section to begin.</EmptyState> : <DataTable caption={`${section.code} student roster`} rows={members} rowKey={(student) => student.id} columns={[
             { key: 'student', header: 'Student', render: (student) => <><strong>{student.name}</strong><span className="block text-xs text-muted-slate">{student.studentId}</span></> },
             { key: 'program', header: 'Programme', render: (student) => student.program },
-            { key: 'remove', header: '', render: (student) => <button className="font-semibold text-error hover:underline" type="button" onClick={() => void changeRoster(section, 'remove', student.id)}>Remove</button> },
+            { key: 'remove', header: '', render: (student) => <button className="font-semibold text-error hover:underline" type="button" disabled={saving} onClick={() => void changeRoster(section, 'remove', student.id)}>Remove</button> },
           ]} />}
         </section>
       })}
@@ -423,15 +438,17 @@ export function AdminCoursesPage() {
       <TextField label="Course code" name="course-code" required value={courseForm.code} onChange={(event) => setCourseForm((current) => ({ ...current, code: event.target.value }))} />
       <TextField label="Course name" name="course-name" required value={courseForm.name} onChange={(event) => setCourseForm((current) => ({ ...current, name: event.target.value }))} />
       <TextField label="Department" name="course-department" required value={courseForm.department} onChange={(event) => setCourseForm((current) => ({ ...current, department: event.target.value }))} />
-      {error && <p className="text-error" role="alert">{error}</p>}<div className="flex justify-end gap-2"><Button variant="secondary" type="button" onClick={() => setCourseOpen(false)}>Cancel</Button><Button>{editingCourse ? 'Save course' : 'Create course'}</Button></div>
+      {error && <p className="text-error" role="alert">{error}</p>}<div className="flex justify-end gap-2"><Button variant="secondary" type="button" onClick={() => setCourseOpen(false)}>Cancel</Button><Button disabled={saving}>{editingCourse ? 'Save course' : 'Create course'}</Button></div>
     </form></Dialog>
     <Dialog open={sectionOpen} onClose={() => setSectionOpen(false)} title={editingSection ? 'Edit class section' : 'Add class section'}><form className="grid gap-4" onSubmit={(event) => void saveSection(event)}>
       <TextField label="Section code" name="section-code" required value={sectionForm.code} onChange={(event) => setSectionForm((current) => ({ ...current, code: event.target.value }))} />
+      <TextField label="Academic year" name="academic-year" required pattern="[1-9][0-9]{3}/[1-9][0-9]{3}" placeholder="2026/2027" value={sectionForm.academicYear} onChange={event => setSectionForm(current => ({ ...current, academicYear: event.target.value }))} />
+      <TextField label="Term" name="term" required maxLength={40} placeholder="SEMESTER 1" value={sectionForm.term} onChange={event => setSectionForm(current => ({ ...current, term: event.target.value }))} />
       <label className="grid gap-1.5 text-sm font-semibold">Course<select className={selectClass} required value={sectionForm.courseId} onChange={(event) => setSectionForm((current) => ({ ...current, courseId: event.target.value }))}><option value="">Select course</option>{courses?.map((course) => <option key={course.id} value={course.id}>{course.code} · {course.name}</option>)}</select></label>
-      <label className="grid gap-1.5 text-sm font-semibold">Lecturer<select className={selectClass} required value={sectionForm.lecturerId} onChange={(event) => setSectionForm((current) => ({ ...current, lecturerId: event.target.value }))}><option value="">Select lecturer</option>{staff?.filter((account) => account.role === 'lecturer' && account.status === 'Active').map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+      <label className="grid gap-1.5 text-sm font-semibold">Lecturer<select className={selectClass} required value={sectionForm.lecturerId} onChange={(event) => setSectionForm((current) => ({ ...current, lecturerId: event.target.value }))}><option value="">Select lecturer</option>{staff?.filter((account) => account.role === 'lecturer' && (account.status === 'Active' || account.id === editingSection?.lecturerId)).map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
       <TextField label="Room" name="section-room" required value={sectionForm.room} onChange={(event) => setSectionForm((current) => ({ ...current, room: event.target.value }))} />
       <TextField label="Schedule" name="section-schedule" required placeholder="e.g. Mon · 09:00" value={sectionForm.schedule} onChange={(event) => setSectionForm((current) => ({ ...current, schedule: event.target.value }))} />
-      {error && <p className="text-error" role="alert">{error}</p>}<div className="flex justify-end gap-2"><Button variant="secondary" type="button" onClick={() => setSectionOpen(false)}>Cancel</Button><Button>{editingSection ? 'Save section' : 'Create section'}</Button></div>
+      {error && <p className="text-error" role="alert">{error}</p>}<div className="flex justify-end gap-2"><Button variant="secondary" type="button" onClick={() => setSectionOpen(false)}>Cancel</Button><Button disabled={saving}>{editingSection ? 'Save section' : 'Create section'}</Button></div>
     </form></Dialog>
   </>
 }
@@ -505,7 +522,7 @@ export function AdminTerminalsPage() {
         <TextField label="Station name" name="terminal-name" required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
         <TextField label="Location" name="terminal-location" required value={form.location} onChange={(event) => setForm((current) => ({ ...current, location: event.target.value }))} />
         {formError && <p className="rounded-lg bg-error-bg p-3 text-error" role="alert">{formError}</p>}
-        <p className="text-xs text-muted-slate">This fictional station record does not provision device credentials.</p>
+        <p className="text-xs text-muted-slate">Registering a station does not provision device credentials.</p>
         <div className="flex justify-end gap-2"><Button variant="secondary" type="button" onClick={() => setDialogOpen(false)}>Cancel</Button><Button disabled={saving}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Register terminal'}</Button></div>
       </form>
     </Dialog>
@@ -514,7 +531,7 @@ export function AdminTerminalsPage() {
 
 export function AdminTerminalDetailsPage() {
   const { terminalId = '' } = useParams()
-  const { data: terminals, error } = useResource(() => api.getTerminals(), terminalId)
+  const { data: terminals, error } = useResource(async () => [(await staffJson<{ terminal: Terminal }>(`/admin/terminals/${encodeURIComponent(terminalId)}`)).terminal], terminalId)
   const sessionsResource = useResource(() => api.getSessions())
   const sessions = sessionsResource.data
   if (error) return <ErrorState title="Terminal details unavailable" message={error} />
@@ -538,8 +555,8 @@ export function AdminTerminalDetailsPage() {
 
 export function AdminSessionsPage() {
   const { data: sessions, error } = useResource(() => api.getSessions())
-  const { data: sections } = useResource(() => api.getSections())
-  const { data: staff } = useResource(() => api.getStaff())
+  const { data: sections, error: sectionsError } = useResource(() => api.getSections())
+  const { data: staff, error: staffError } = useResource(() => api.getStaff())
   const [filters, setFilters] = useState({ sectionId: '', lecturerId: '', from: '', to: '', status: '' })
   const filtered = useMemo(() => (sessions ?? []).filter((session) => (!filters.sectionId || session.sectionId === filters.sectionId)
     && (!filters.lecturerId || session.lecturerId === filters.lecturerId)
@@ -548,14 +565,14 @@ export function AdminSessionsPage() {
     && (!filters.status || session.status === filters.status)), [sessions, filters])
   return <>
     <PageHeader title="Sessions & attendance" description="Institution-wide session history and recorded attendance." />
-    {error ? <ErrorState title="Session history unavailable" message={error} /> : !sessions || !sections || !staff ? <LoadingState label="Loading session history…" /> : <>
+    {error || sectionsError || staffError ? <ErrorState title="Session history unavailable" message={error ?? sectionsError ?? staffError ?? 'Unable to load session context.'} /> : !sessions || !sections || !staff ? <LoadingState label="Loading session history…" /> : <>
       <section className={`${surface} mb-5 p-4`}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <label className="grid gap-1 text-xs font-semibold text-muted-slate">Class section<select className={selectClass} value={filters.sectionId} onChange={(event) => setFilters((state) => ({ ...state, sectionId: event.target.value }))}><option value="">All sections</option>{sections.map((section) => <option key={section.id} value={section.id}>{section.code}</option>)}</select></label>
           <label className="grid gap-1 text-xs font-semibold text-muted-slate">Lecturer<select className={selectClass} value={filters.lecturerId} onChange={(event) => setFilters((state) => ({ ...state, lecturerId: event.target.value }))}><option value="">All lecturers</option>{staff.filter((account) => account.role === 'lecturer').map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
           <label className="grid gap-1 text-xs font-semibold text-muted-slate">From<input className={selectClass} type="date" value={filters.from} onChange={(event) => setFilters((state) => ({ ...state, from: event.target.value }))} /></label>
           <label className="grid gap-1 text-xs font-semibold text-muted-slate">To<input className={selectClass} type="date" value={filters.to} onChange={(event) => setFilters((state) => ({ ...state, to: event.target.value }))} /></label>
-          <label className="grid gap-1 text-xs font-semibold text-muted-slate">Status<select className={selectClass} value={filters.status} onChange={(event) => setFilters((state) => ({ ...state, status: event.target.value }))}><option value="">All statuses</option>{['Open', 'Scheduled', 'Closed'].map((status) => <option key={status}>{status}</option>)}</select></label>
+          <label className="grid gap-1 text-xs font-semibold text-muted-slate">Status<select className={selectClass} value={filters.status} onChange={(event) => setFilters((state) => ({ ...state, status: event.target.value }))}><option value="">All statuses</option>{['Open', 'Closed'].map((status) => <option key={status}>{status}</option>)}</select></label>
         </div>
       </section>
       <TableSection title="Session history" description={`${filtered.length} sessions`}>
@@ -563,7 +580,7 @@ export function AdminSessionsPage() {
           { key: 'course', header: 'Session', render: (session) => <><strong>{session.courseCode} · {session.courseName}</strong><span className="block text-xs text-muted-slate">{sections.find((section) => section.id === session.sectionId)?.code} · {session.room}</span></> },
           { key: 'lecturer', header: 'Lecturer', render: (session) => staff.find((account) => account.id === session.lecturerId)?.name ?? '—' },
           { key: 'date', header: 'Date / time', render: (session) => <span className="tabular-nums">{session.date} · {session.startsAt}</span> },
-          { key: 'status', header: 'Status', render: (session) => <StatusBadge tone={session.status === 'Open' ? 'success' : session.status === 'Scheduled' ? 'info' : 'neutral'}>{session.status}</StatusBadge> },
+          { key: 'status', header: 'Status', render: (session) => <StatusBadge tone={session.status === 'Open' ? 'success' : 'neutral'}>{session.status}</StatusBadge> },
           { key: 'detail', header: '', render: (session) => <Link className="font-semibold text-deep-teal hover:underline" to={`/admin/sessions/${session.id}`}>Details</Link> },
         ]} />}
       </TableSection>
@@ -588,7 +605,6 @@ export function AdminSessionDetailsPage() {
     setExportError(null)
     try {
       downloadAttendanceCsv(data.attendance, `${data.courseCode.replaceAll(' ', '-')}-${data.date}-attendance.csv`)
-      await api.recordReportExport(`${data.courseCode} · ${data.date}`)
       setExportMessage(`Exported ${data.attendance.length} attendance records.`)
     } catch (reason) {
       setExportError(reason instanceof Error ? reason.message : 'Unable to export session attendance.')
@@ -603,7 +619,7 @@ export function AdminSessionDetailsPage() {
     <PageHeader title={`${data.courseCode} · ${data.courseName}`} description={`${data.date} · ${data.startsAt} · ${data.room}`} action={<Link className={secondaryButton} to="/admin/sessions">Back to sessions</Link>} />
     <section className={`${surface} mb-5 p-5`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3"><StatusBadge tone={data.status === 'Open' ? 'success' : data.status === 'Scheduled' ? 'info' : 'neutral'}>{data.status}</StatusBadge><span className="text-sm text-muted-slate">Recorded check-ins: <strong className="tabular-nums text-ink">{data.attendance.length}</strong></span></div>
+        <div className="flex flex-wrap items-center gap-3"><StatusBadge tone={data.status === 'Open' ? 'success' : 'neutral'}>{data.status}</StatusBadge><span className="text-sm text-muted-slate">Recorded check-ins: <strong className="tabular-nums text-ink">{data.attendance.length}</strong></span></div>
         <Button variant="secondary" onClick={() => void exportCsv()}>Export attendance CSV</Button>
       </div>
       <dl className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -631,12 +647,22 @@ export function AdminAuditPage() {
   const [actor, setActor] = useState('')
   const [action, setAction] = useState('')
   const [selectedEvent, setSelectedEvent] = useState<AuditEvent | null>(null)
+  const [detailError, setDetailError] = useState<string | null>(null)
+  const [detailPending, setDetailPending] = useState(false)
+  async function showEvent(event: AuditEvent) {
+    if (detailPending) return
+    setDetailPending(true); setDetailError(null)
+    try { setSelectedEvent((await staffJson<{ event: AuditEvent }>(`/admin/audit-events/${event.id}`)).event) }
+    catch (reason) { setDetailError(reason instanceof Error ? reason.message : 'Unable to load event.') }
+    finally { setDetailPending(false) }
+  }
   const filtered = (events ?? []).filter((event) => (!actor || event.actor === actor)
     && (!action || event.action.toLowerCase().includes(action.toLowerCase()))
     && (!search || `${event.actor} ${event.action} ${event.target}`.toLowerCase().includes(search.toLowerCase())))
   const actors = [...new Set((events ?? []).map((event) => event.actor))]
   return <>
     <PageHeader title="Audit log" description="Recorded administrative and attendance operations." />
+    {detailError && <ErrorState title="Event unavailable" message={detailError} />}
     {error ? <ErrorState title="Audit log unavailable" message={error} /> : !events ? <LoadingState label="Loading audit events…" /> : <>
       <section className={`${surface} mb-5 p-4`}><div className="grid gap-3 sm:grid-cols-3">
         <label className="grid gap-1 text-xs font-semibold text-muted-slate">Search actor, action, or target<input className={selectClass} type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search activity" /></label>
@@ -648,7 +674,7 @@ export function AdminAuditPage() {
           { key: 'time', header: 'Timestamp', render: (event) => <span className="whitespace-nowrap text-xs tabular-nums">{dateLabel(event.timestamp)}</span> },
           { key: 'actor', header: 'Actor', render: (event) => event.actor },
           { key: 'action', header: 'Action', render: (event) => event.action },
-          { key: 'target', header: 'Target', render: (event) => <><span>{event.target}</span><button className="ml-3 font-semibold text-deep-teal hover:underline" type="button" onClick={() => setSelectedEvent(event)}>Details</button></> },
+          { key: 'target', header: 'Target', render: (event) => <><span>{event.target}</span><button disabled={detailPending} className="ml-3 font-semibold text-deep-teal hover:underline" type="button" onClick={() => void showEvent(event)}>Details</button></> },
         ]} />}
       </TableSection>
     </>}

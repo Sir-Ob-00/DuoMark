@@ -7,10 +7,11 @@ import robBuildingImage from '../assets/ROB building.jpg'
 import lecturerOfficeImage from "../assets/lecturer's office.jpg"
 
 function StaffShell({ role }: { role: 'admin' | 'lecturer' }) {
-  const { user, signOut, mode } = useAuth()
+  const { user, signOut } = useAuth()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [signingOut, setSigningOut] = useState(false)
   const isAdmin = role === 'admin'
   const label = isAdmin ? 'Administrator' : 'Lecturer'
   const workspaceImage = isAdmin ? robBuildingImage : lecturerOfficeImage
@@ -44,13 +45,15 @@ function StaffShell({ role }: { role: 'admin' | 'lecturer' }) {
   }, [menuOpen])
 
   async function handleSignOut() {
+    if (signingOut) return
+    setSigningOut(true)
     setError(null)
     try {
       await signOut()
       navigate('/login', { replace: true })
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to sign out.')
-    }
+    } finally { setSigningOut(false) }
   }
 
   const navigation = (
@@ -74,7 +77,7 @@ function StaffShell({ role }: { role: 'admin' | 'lecturer' }) {
         {navigation}
         <div className="mt-auto border-t border-white/15 pt-4">
           <div className="flex min-w-0 items-center gap-2.5 p-1"><span className="inline-flex size-[34px] shrink-0 items-center justify-center rounded-full bg-pale-teal font-semibold text-deep-navy" aria-hidden="true">{user?.name.slice(0, 1) ?? 'S'}</span><span className="min-w-0"><strong className="block overflow-hidden text-xs text-ellipsis whitespace-nowrap text-white">{user?.name ?? label}</strong><small className="block overflow-hidden text-[0.7rem] text-ellipsis whitespace-nowrap text-slate-400">{user?.email}</small></span></div>
-          <Button className="mt-2 w-full justify-start text-slate-300 hover:bg-white/10" variant="quiet" onClick={() => void handleSignOut()} aria-label="Sign out">Sign out</Button>
+          <Button disabled={signingOut} className="mt-2 w-full justify-start text-slate-300 hover:bg-white/10" variant="quiet" onClick={() => void handleSignOut()} aria-label="Sign out">{signingOut ? 'Signing out…' : 'Sign out'}</Button>
         </div>
       </aside>
       <div className="relative z-10 min-w-0 pt-[114px] min-[761px]:ml-[252px] min-[761px]:pt-16">
@@ -86,7 +89,7 @@ function StaffShell({ role }: { role: 'admin' | 'lecturer' }) {
             </svg>
           </Button>
         </header>
-        <div className="fixed inset-x-0 top-16 z-20 flex min-h-[50px] items-center justify-between border-b-2 border-deep-teal/30 bg-white/75 px-4 text-xs text-muted-slate backdrop-blur-md min-[761px]:inset-x-auto min-[761px]:top-0 min-[761px]:right-0 min-[761px]:left-[252px] min-[761px]:min-h-16 min-[761px]:px-9"><span>{label} workspace</span><div className="flex items-center gap-3 min-[761px]:gap-5"><span className="inline-flex items-center gap-2"><span className="size-2 rounded-full bg-green-600" aria-hidden="true" />{mode === "live" ? "Live data" : "Demo data"}</span><span className="border-b border-deep-teal/60 pb-0.5 font-semibold text-ink">{user?.name}</span></div></div>
+        <div className="fixed inset-x-0 top-16 z-20 flex min-h-[50px] items-center justify-between border-b-2 border-deep-teal/30 bg-white/75 px-4 text-xs text-muted-slate backdrop-blur-md min-[761px]:inset-x-auto min-[761px]:top-0 min-[761px]:right-0 min-[761px]:left-[252px] min-[761px]:min-h-16 min-[761px]:px-9"><span>{label} workspace</span><div className="flex items-center gap-3 min-[761px]:gap-5"><span className="inline-flex items-center gap-2"><span className="size-2 rounded-full bg-green-600" aria-hidden="true" />Live data</span><span className="border-b border-deep-teal/60 pb-0.5 font-semibold text-ink">{user?.name}</span></div></div>
         <main className="mx-auto w-full max-w-[1440px] px-4 pt-6 pb-12 min-[761px]:px-9 min-[761px]:pt-8">
           {error && <p className="mb-4 rounded-lg border border-red-200 bg-error-bg px-4 py-3 text-error" role="alert">{error}</p>}
           <Outlet />

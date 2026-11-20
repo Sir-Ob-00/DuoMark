@@ -105,10 +105,11 @@ interface DialogProps {
   open: boolean
   title: string
   onClose: () => void
+  preventClose?: boolean
   children: ReactNode
 }
 
-export function Dialog({ open, title, onClose, children }: DialogProps) {
+export function Dialog({ open, title, onClose, preventClose = false, children }: DialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const titleId = 'shared-dialog-title'
 
@@ -125,13 +126,14 @@ export function Dialog({ open, title, onClose, children }: DialogProps) {
       ref={dialogRef}
       aria-labelledby={titleId}
       onClose={onClose}
+      onCancel={event => { if (preventClose) event.preventDefault() }}
       onClick={(event) => {
-        if (event.target === dialogRef.current) onClose()
+        if (!preventClose && event.target === dialogRef.current) onClose()
       }}
     >
       <div className="flex items-center justify-between border-b border-light-border px-5 py-4">
         <h2 className="m-0 font-manrope text-lg font-bold" id={titleId}>{title}</h2>
-        <Button type="button" variant="quiet" aria-label="Close dialog" onClick={onClose}>Close</Button>
+        <Button type="button" variant="quiet" aria-label="Close dialog" disabled={preventClose} onClick={onClose}>Close</Button>
       </div>
       <div className="p-5">{children}</div>
     </dialog>

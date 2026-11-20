@@ -8,6 +8,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [user, setUser] = useState<StaffUser | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    const expired = () => { setUser(null); setError(null); setLoading(false) }
+    window.addEventListener('duomark-session-expired', expired)
+    return () => window.removeEventListener('duomark-session-expired', expired)
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -49,7 +54,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [])
 
   const value = useMemo(
-    () => ({ user, mode: authService.mode, loading, error, refresh, signIn, signOut }),
+    () => ({ user, loading, error, refresh, signIn, signOut }),
     [user, loading, error, refresh, signIn, signOut],
   )
 

@@ -82,7 +82,7 @@
   }
 
   .signin-logo img {
-    width: 140px;
+    width: 190px;
   }
 
   .signin-heading {
@@ -95,25 +95,14 @@
 
   .signin-heading h1 {
     margin-bottom: 0;
-    font-size: 1.75rem;
+    font-size: 2.5rem;
   }
 
   .signin-heading > p:last-child {
-    font-size: 0.75rem;
+    font-size: 0.875rem;
   }
 
-  .signin-demo {
-    margin-bottom: 8px;
-    padding-block: 6px;
-    padding-inline: 8px;
-    font-size: 0.625rem;
-    line-height: 0.9rem;
-  }
 
-  .signin-demo ul {
-    margin-top: 2px;
-    gap: 0;
-  }
 
   .signin-form {
     gap: 6px;
@@ -121,13 +110,13 @@
 
   .signin-form input,
   .signin-form button {
-    min-height: 36px;
+    min-height: 42px;
     padding-block: 6px;
   }
 
   .signin-footer {
     margin-top: 8px;
-    font-size: 0.625rem;
-    line-height: 0.75rem;
+    font-size: 0.75rem;
+    line-height: 1rem;
   }
 }

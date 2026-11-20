@@ -1,5 +1,7 @@
 # DuoMark backend
 
+Current lecturer invitations and password activation are implemented; see [Lecturer invitation and activation](#lecturer-invitation-and-activation-current-implementation). The older disabled-invitation notes below are superseded.
+
 Staff authentication and admin student/consent API setup, request examples, and expected responses are documented below.
 
 Node, Express 5, TypeScript ESM, Prisma 7 and PostgreSQL. Run commands in PowerShell from `backend`; `.cmd` avoids PowerShell npm script execution-policy issues.
@@ -2008,3 +2010,192 @@ The live lecturer dashboard replaces its two count-only list requests with one o
 Changed files: `routes/overview.routes.ts`, `controllers/overview.controller.ts`, `services/overview.service.ts`, app mount, shared attendance-history scope in `attendance-read.service.ts`, `tests/overview.test.ts`, frontend `api/overview.ts`, admin overview and live lecturer dashboard, READMEs. No migration or new environment variables.
 
 Tests compare both overview responses with direct database counts and authorized list totals, exercise UTC midnight inclusion/exclusion, create 25 student fixtures to exceed default pagination, check individual enrollment states and availability versus occupancy, and ensure unrelated lecturer activity has no effect. They also verify original-opener attribution after reassignment, register persistence after roster removal, anonymous/device/wrong-role denial and filter rejection.
+
+## Frontend integration status
+
+The live frontend is now connected to the implemented directories, forms, rosters, classes, session lifecycle, official registers and audit history in addition to the existing authentication, overview, reports, SSE and public station display. See [the screen/action integration map](../frontend/INTEGRATION.md) for field mappings, changed files, actual verification, Windows setup and remaining device/provisioning blockers. No production backend endpoint or migration was added by this frontend integration. `tests/frontend-integration.test.ts` imports the actual frontend adapter and exercises it against Express/PostgreSQL with real cookie authentication and fictional development records.
+
+## Lecturer invitation and activation (current implementation)
+
+This section supersedes the earlier disabled-invitation design notes. Lecturer profile creation still creates no usable credentials. Open a lecturer's admin details screen to see account setup status and **Send Invitation / Resend Invitation**. Existing provisioned accounts display Activated and cannot be invited again.
+
+### Windows local mail inbox setup
+
+Stop the existing backend dev command with Ctrl+C before restarting it with these settings (the frontend remains on port 5173):
+
+```powershell
+Set-Location D:\Projects\multimodal-biometric-attendance\backend
+npm.cmd install
+npm.cmd run db:generate
+npm.cmd run db:migrate
+$env:NODE_ENV = 'development'
+$env:MAIL_TRANSPORT = 'development-inbox'
+$env:FRONTEND_BASE_URL = 'http://localhost:5173'
+$env:DEV_MAIL_INBOX_PORT = '8025'
+$env:FRONTEND_ORIGINS = 'http://localhost:5173'
+npm.cmd run dev
+```
+
+In another PowerShell window:
+
+```powershell
+Set-Location D:\Projects\multimodal-biometric-attendance\frontend
+npm.cmd run dev
+```
+
+1. Sign in as an admin at http://localhost:5173/login.
+2. Create a fictional lecturer profile with an email such as `lecturer.activation@example.test`, and assign an existing class in Courses & class sections **before sending an invitation**.
+3. Open that lecturer's details at `/admin/staff/:id`. It shows Awaiting account setup. Click Send Invitation. Only a confirmed transport acceptance produces the Invitation sent message.
+4. Open **http://127.0.0.1:8025/** and refresh to see the email addressed to that lecturer. Click **Set your lecturer password** in the email. This separate local inbox is the intended delivery channel, not an admin API token response.
+5. Set and confirm a password of at least 12 characters. Activation clears any staff session currently signed in in that browser and sends you to `/login`. Sign in using the invited email and chosen password. The backend role opens the Lecturer Dashboard; My Classes shows the previously assigned class under the same lecturer ID.
+6. To resend, sign in as admin again and use the lecturer details page. Wait at least 60 seconds between invitations. A replaced link is invalid even if the old email remains visible in the inbox. Activated accounts cannot be reinvited; this is activation, not a password-reset feature.
+
+The local inbox binds only to 127.0.0.1, accepts only localhost/127.0.0.1 Host headers, rejects cross-origin reads and frames, uses no-store/no-referrer, and is disabled outside development/test. It holds at most 50 email bodies in process memory; expired messages are omitted and a restart clears the inbox. There is no production inbox API, persistence, external delivery or credential bypass. The opaque token exists in the delivered email only, never application API responses, admin UI, database plaintext or application logs. The email link uses a URL fragment, so the token is not sent in HTTP access URLs; the activation page removes the fragment from history and holds it only in page memory. Refreshing that page requires reopening the original email link.
+
+### Real SMTP configuration
+
+Configure the API process or an uncommitted `.env`/secret manager:
+
+```dotenv
+NODE_ENV=production
+MAIL_TRANSPORT=smtp
+FRONTEND_BASE_URL=https://attendance.your-domain.example
+FRONTEND_ORIGINS=https://attendance.your-domain.example
+SMTP_HOST=smtp.your-provider.example
+SMTP_PORT=465
+SMTP_USER=your-provider-user
+SMTP_PASSWORD=your-provider-secret
+MAIL_FROM=DuoMark <verified-sender@your-domain.example>
+```
+
+Use your real verified sender/provider credentials and trusted frontend origin. Port 465 uses implicit TLS; other configured ports require STARTTLS with normal certificate verification. Production requires an HTTPS root frontend origin, and the existing Secure/SameSite/proxy cookie settings still apply. Nodemailer transport debugging/logging is disabled. No real SMTP success/delivery was tested because provider credentials were not supplied. The mail transport must report that the intended recipient was accepted; this means **accepted for delivery**, not proof of final delivery/read. Configure provider sender-domain requirements (such as SPF/DKIM) and review delivery/bounce monitoring separately.
+
+Missing/invalid configuration returns actionable 503 errors, creates no usable invitation, and records the requesting admin's actual outcome. Transport timeout/rejection is recorded as UNCONFIRMED and returns 503; it never displays Invitation sent. Retry after checking configuration and waiting 60 seconds. The raw transport error, credentials, message contents and invitation link are not logged or returned.
+
+### API and lifecycle
+
+- `POST /api/v1/admin/lecturers/:lecturerId/invitation`: authenticated ADMIN, no body/query. The saved lecturer email is the only recipient. Active and password-unprovisioned LECTURER records only. Success **202** returns `{ invitation: { outcome: "ACCEPTED", deliveryStatus: "ACCEPTED", expiresAt } }`. No token or link. Non-lecturer/missing target 404; inactive/already provisioned/eligibility changed 409; missing transport/unconfirmed acceptance 503; lecturer caller 403; anonymous 401. Standard Origin and X-CSRF-Protection: 1 are required.
+- `POST /api/v1/auth/lecturer-invitations/activate`: public activation, same browser Origin/custom-header protection. JSON accepts exactly `{ token, password, passwordConfirmation }`. Passwords must match, be at least 12 characters and at most 1024 UTF-8 bytes. No actor, role, email or arbitrary target fields accepted. **200** `{ activated: true }` does not sign the user in. Invalid, expired, replaced, used, unaccepted, inactive, changed-email or already-provisioned invitations return a generic **400** invalid-link response. Malformed inputs are 400, excessive activation attempts 429.
+- `GET /api/v1/admin/lecturers/:id` adds approved `accountSetup`: status (AWAITING_SETUP, INVITATION_PENDING, INVITATION_EXPIRED, DELIVERY_UNCONFIRMED or ACTIVATED), lastInvitationAt, expiresAt, deliveryStatus and canInvite. Password hashes and token hashes are never returned.
+
+Invitations last 24 hours. Only SHA-256 digests of cryptographically random 32-byte tokens are stored. Sending is serialized per lecturer, rate-limited to one invitation per 60 seconds and 20 admin requests per 15 minutes. Activation has an IP-based 30-attempt/15-minute limit. The shared DB rate limiter stores digest keys, not raw IP/identity keys. Replacements revoke previous unused tokens, and email edits/deactivation revoke unused invitations in the same staff mutation transaction; reactivation does not restore old links.
+
+Redemption locks the existing Staff row, reloads the invitation and staff email/status/role/password state, hashes the password with the existing scrypt mechanism, consumes the token and records LECTURER_ACTIVATED in one transaction. Concurrent redemptions yield one activation and one audit event. Staff ID, profile, roster and class assignments are preserved. The authenticated activation actor is the existing lecturer identity proven by the token, and the invitation retains its issuing admin. Staff sessions are revoked when credentials are provisioned.
+
+Sending records a PREPARED attempt before contacting the external transport, then records its confirmed ACCEPTED or DELIVERY_UNCONFIRMED outcome with the authenticated admin. These database transitions and corresponding audits are transactional. Mail acceptance cannot be atomically committed with PostgreSQL: a crash/commit failure can leave a PENDING invitation or an accepted email whose link cannot yet activate. Only durably ACCEPTED tokens can redeem; a resend after cooldown safely replaces such links. This is a bounded synchronous MVP delivery flow, not a durable worker/outbox or a guarantee of final delivery. SMTP send timeouts are bounded; raw tokens are not persisted for automatic retries.
+
+### Migration, files and verification
+
+Migration `20261120006000_lecturer_activation` adds LecturerInvitation, delivery state, token digest/indexes and the activation audit type/target rule. It preserves existing staff credentials, IDs, Course records and all assignments. SMTP dependencies are `nodemailer` and `@types/nodemailer`.
+
+Changed backend files: Prisma schema/migration; invitation config, service/controller and auth route; new `integrations/invitation-mail.ts`; server inbox startup; lecturer detail/status/email logic; audit projection; `.env.example`; package/lock; invitation and lecturer tests. Changed frontend files: new `LecturerInvitation.tsx` and `LecturerActivationPage.tsx`, lecturer details/status wording, activation route and post-activation sign-in message; READMEs/integration map.
+
+```powershell
+# backend
+npm.cmd run typecheck
+npm.cmd test
+npx.cmd tsx --test tests/invitations.test.ts
+# frontend
+npm.cmd run build
+npm.cmd run lint
+```
+
+The invitation integration test creates a fictional unprovisioned lecturer and course assignment before enabling invitation delivery, sends through the actual development inbox transport, reads the email link from the separate inbox HTML, submits activation and signs in through the same API used by `/login`, then checks My Classes and the dashboard endpoint with that returned cookie. It verifies original ID/assignment retention, expired/replaced/reused links, concurrent redemption, inactive-and-reactivated rejection, changed-email rejection, wrong-role denial, cooldown, unavailable configuration, refused local SMTP acceptance, actor attribution, accurate delivery status and no raw token in API/audit responses. Browser clicks were not automated: Computer Use previously could not reliably validate the Chrome URL. Actual email-inbox HTTP, activation, staff sign-in and authorized class reads are tested; the manual click-through procedure is above.
+
+## Bulk student import
+
+The Students page now includes **Import Students** beside the existing **Add student** button. Manual creation is unchanged. In the dialog, download the CSV or Excel template, fill it in, choose the file, and click Validate and preview. Fix any errors in the spreadsheet and select the corrected file again. Confirm Import is enabled only when every non-blank row is valid. A successful commit displays the imported count and refreshes the same Students collection used by roster selectors.
+
+### Fields and templates
+
+Templates have exactly the current manual form's six fields. **All six are required; there are currently no optional fields.** Header labels and canonical API field names are both accepted, case-insensitively, in any order, with surrounding header whitespace trimmed. Duplicate aliases for the same field are duplicate headers (for example Student ID plus studentId).
+
+| Template header | API field | Existing manual create rule |
+| --- | --- | --- |
+| Student ID | studentId | Required unique index, at most 64 letters/digits or `/ _ -`; first character letter/digit; trimmed and uppercased. Leading zeroes retained. |
+| Full name | name | Required non-empty text, at most 200 characters |
+| Programme | program | Required non-empty text, at most 150 characters |
+| Department | department | Required non-empty text, at most 150 characters |
+| Level | level | Required 1–999, no leading zeroes; imported as a string for the shared validator |
+| Class section | classSectionId | Required profile identifier, at most 100 letters/digits or `_ -`, starting with a letter/digit |
+
+The backend calls the same `studentInput` validation used by manual POST/PATCH for each field and the complete row. The Student model stores classSectionId as a legacy **profile string**, not a roster relation or ClassSection foreign key; this import preserves that existing backend rule rather than adding a new FK requirement. The dialog lists actual section IDs so admins can copy the same values as the manual dropdown. Section labels are not automatically resolved because they can repeat in different academic periods. Creating/importing a profile does not add roster membership.
+
+Both template downloads contain a header row and no example student that might be imported accidentally. The Excel template formats its columns, especially Student ID, as **Text**. Enter IDs as text. Numeric XLSX ID cells are rejected with instructions to format as Text and re-enter the original value: the server does not guess already-lost leading zeroes. CSV is parsed without number coercion, so `000123` stays `000123`. If editing CSV in Excel, explicitly preserve the column as text or use the supplied XLSX template; the CSV format itself cannot store cell formatting.
+
+### Limits and file handling
+
+- Maximum upload: **2 MiB (2,097,152 bytes)**; maximum **1,000 non-blank data rows**.
+- UTF-8 CSV, including BOM/quoted commas and escaped quotes, or an unencrypted XLSX containing exactly one worksheet. XLS/XLSM are not accepted.
+- Fully blank rows, including leading/trailing blank rows, are ignored. The first non-blank row is the header. CSV row numbers refer to logical table records; XLSX uses actual worksheet row numbers. Headers themselves are checked before student row validation.
+- Missing, duplicate and unknown headers stop row validation. Data errors are returned by file row and field. Normalized duplicate IDs within the file are flagged on every affected row; existing DB indices are flagged without overwriting them.
+- XLSX formulas, dates, hyperlinks and booleans are rejected as field values. Plain text/rich text is read as text; numeric levels are converted to strings before the manual validator. Formulas are never evaluated.
+- Excel ZIP contents are verified before workbook loading: at most 200 entries, 5 MiB per expanded entry and 20 MiB total actual expanded bytes. Upload and parser failures return 400 or 413. Request decompression is disabled for this raw upload route.
+- Uploaded files are handled in memory for the request and are not retained or logged. Preview data contains only the six profile fields and errors, visible to an authenticated ADMIN. Very long invalid values are truncated in the preview; the full original value is validated and rejected.
+
+### Endpoints
+
+All routes require the existing staff cookie and ADMIN role. Lecturer calls return 403; anonymous/device-only calls return 401. GET responses and import responses use Cache-Control: no-store. POST uses the existing allowed Origin and `X-CSRF-Protection: 1` requirements.
+
+| Endpoint | Behavior |
+| --- | --- |
+| GET `/api/v1/admin/student-imports/schema` | Current columns/required flags/rules and limits |
+| GET `/api/v1/admin/student-imports/templates/csv` | Download `duomark-students-template.csv` |
+| GET `/api/v1/admin/student-imports/templates/xlsx` | Download `duomark-students-template.xlsx` with text formatting |
+| POST `/api/v1/admin/student-imports/validate?format=csv` (or xlsx) | Raw file bytes, `Content-Type: application/octet-stream`; read-only preview, 200 with canImport false/true |
+| POST `/api/v1/admin/student-imports/commit?format=csv` (or xlsx) | Re-upload the same original file, reparse/revalidate on the server, commit all or none |
+
+Preview response shape:
+
+```json
+{
+  "summary": { "totalRows": 1, "validRows": 1, "errorRows": 0 },
+  "headerErrors": [],
+  "rows": [{
+    "rowNumber": 2,
+    "values": { "studentId": "000123", "name": "Example Student", "program": "Computing", "department": "ICT", "level": "100", "classSectionId": "section-profile-id" },
+    "errors": []
+  }],
+  "canImport": true
+}
+```
+
+Header errors have no validated rows; fix the headers first. An empty data file cannot be committed. Unknown query parameters, unsupported formats and non-binary bodies are rejected.
+
+Commit success is **201** `{ "importedCount": 1 }`. Invalid rows/headers return **422** with `{ error, validation }`. Existing/concurrently created index conflicts return **409** with a freshly checked, row-numbered validation report. Confirmation revalidates original file bytes, not browser-submitted normalized rows or success flags. Within one PostgreSQL transaction it creates the profiles and one existing STUDENT_CREATED audit per profile using the authenticated admin, with internal source IMPORT and original file row metadata. No consent, roster, enrollment or attendance records are created. The unique Student index constraint remains the concurrency guard; createMany does not skip duplicate indices. If insertion or auditing fails, the entire transaction rolls back.
+
+A repeated commit cannot duplicate a profile: its indices now conflict and the whole repeat returns 409. On a lost network response, the browser does not falsely claim that nothing was saved; it asks the admin to refresh Students before retrying. Existing records are never updated. Preview creation writes zero students and zero success audits.
+
+### PowerShell examples
+
+Reuse an ADMIN `$staffSession` from the auth examples and choose your actual local file path:
+
+```powershell
+$base = 'http://localhost:5000/api/v1/admin/student-imports'
+Invoke-WebRequest -WebSession $staffSession -Uri "$base/templates/csv" -OutFile "$PWD/students-template.csv"
+Invoke-WebRequest -WebSession $staffSession -Uri "$base/templates/xlsx" -OutFile "$PWD/students-template.xlsx"
+# Fill the downloaded template, preserving index numbers as text.
+$headers = @{ Origin = 'http://localhost:5173'; 'X-CSRF-Protection' = '1' }
+Invoke-RestMethod -Method Post -WebSession $staffSession -Uri "$base/validate?format=csv" -Headers $headers -ContentType 'application/octet-stream' -InFile "$PWD/students-template.csv"
+# Only after a fully valid preview:
+Invoke-RestMethod -Method Post -WebSession $staffSession -Uri "$base/commit?format=csv" -Headers $headers -ContentType 'application/octet-stream' -InFile "$PWD/students-template.csv"
+# Use format=xlsx and the .xlsx file for Excel.
+```
+
+### Files and verification
+
+Backend changes: app mount; new `routes/student-import.routes.ts`, `controllers/student-import.controller.ts`, `validation/student-import.validation.ts`, `services/student-import-file.service.ts`, `services/student-import.service.ts`, `tests/student-import.test.ts`; package and lockfile. Dependencies: ExcelJS, csv-parse, yauzl and its TypeScript definitions. A scoped ExcelJS UUID override removes the newly introduced UUID advisory; existing Prisma dependency advisories are outside this feature and were not addressed with a breaking downgrade.
+
+Frontend changes: `features/admin/StudentImportDialog.tsx`, Students action/reload in `AdminFeaturePages.tsx`, structured error details in `api/http.ts`, and an optional close guard in the shared Dialog so pending uploads cannot be dismissed accidentally. Existing manual forms remain available. No schema migration is required; existing Course/Student data and unique indices remain intact.
+
+```powershell
+# backend
+npm.cmd run typecheck
+npm.cmd test
+npx.cmd tsx --test tests/student-import.test.ts
+# frontend
+npm.cmd run build
+npm.cmd run lint
+```
+
+The full regression suite passed **20 tests**. The focused import test was rerun successfully after the scoped dependency update. The test downloads both real templates, fills and uploads them to Express/PostgreSQL, verifies successful CSV/XLSX commits and leading-zero IDs, blank/reordered rows and headers, missing/duplicate/unknown headers, multiple invalid fields, duplicate indices in the file and database, text-cell enforcement, formula rejection, upload/row/expanded-ZIP limits, lecturer/anonymous/CSRF denial, zero preview writes/audits, zero failed-import writes, rollback on audit failure and concurrent commits. It checks an import/manual conflict introduced after preview with the actual row number, verifies no existing profile overwrite, finds imported profiles through the normal Students search, and explicitly adds one to a roster afterward to verify My Classes visibility. No browser click-through is claimed; the existing Computer Use URL-verification limitation remains. Frontend TypeScript/build and lint passed.

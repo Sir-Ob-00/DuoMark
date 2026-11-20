@@ -29,10 +29,16 @@ export async function listLecturers(query: ReturnType<typeof lecturerQuery>) {
 }
 export async function getLecturer(id: string) {
   const lecturer = await prisma.staff.findFirst({ where: { id, role: "LECTURER" }, select: { ...lecturerSelect,
+    passwordHash: true, lecturerInvitations: { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { createdAt: true, expiresAt: true, delivery: true, revokedAt: true } },
     assignedSections: { select: sectionSelect, orderBy: [{ academicYear: "desc" }, { term: "asc" }, { code: "asc" }, { id: "asc" }] } } });
   if (!lecturer) throw new HttpError(404, "Lecturer not found");
-  const { assignedSections, ...profile } = lecturer;
-  return { ...profile, assignedClasses: assignedSections.map(projectSection) };
+  const { assignedSections, passwordHash, lecturerInvitations, ...profile } = lecturer;
+  const latest = lecturerInvitations[0];
+  return { ...profile, assignedClasses: assignedSections.map(projectSection), accountSetup: {
+    status: passwordHash !== null ? "ACTIVATED" : !latest ? "AWAITING_SETUP" : latest.revokedAt || latest.expiresAt.getTime() <= Date.now() ? "INVITATION_EXPIRED" : latest.delivery === "ACCEPTED" ? "INVITATION_PENDING" : "DELIVERY_UNCONFIRMED",
+    lastInvitationAt: latest?.createdAt ?? null, expiresAt: latest?.expiresAt ?? null, deliveryStatus: latest?.delivery ?? null,
+    canInvite: profile.status === "Active" && passwordHash === null,
+  } };
 }
 export async function createLecturer(input: LecturerInput, actorId: string) {
   return uniqueEmail(() => prisma.$transaction(async tx => {
@@ -47,6 +53,7 @@ export async function updateLecturer(id: string, input: Partial<LecturerInput>, 
     const changedFields = (Object.keys(input) as (keyof LecturerInput)[]).filter(key => input[key] !== before[key]);
     if (!changedFields.length) return before;
     const lecturer = await tx.staff.update({ where: { id }, data: input, select: lecturerSelect });
+    if (changedFields.includes("email")) await tx.lecturerInvitation.updateMany({ where: { lecturerId: id, consumedAt: null, revokedAt: null }, data: { revokedAt: new Date() } });
     await tx.auditEntry.create({ data: { actorId, lecturerId: id, action: "LECTURER_UPDATED", details: { changedFields,
       before: Object.fromEntries(changedFields.map(key => [key, before[key]])), after: Object.fromEntries(changedFields.map(key => [key, lecturer[key]])) } } });
     return lecturer;
@@ -57,6 +64,7 @@ export async function setLecturerStatus(id: string, status: "Active" | "Inactive
     const before = await lockLecturer(tx, id);
     // Always clear sessions on an Inactive request, including idempotent retries.
     const revoked = status === "Inactive" ? await tx.staffSession.deleteMany({ where: { staffId: id } }) : { count: 0 };
+    if (status === "Inactive") await tx.lecturerInvitation.updateMany({ where: { lecturerId: id, consumedAt: null, revokedAt: null }, data: { revokedAt: new Date() } });
     if (before.status === status && !revoked.count) return before;
     const lecturer = await tx.staff.update({ where: { id }, data: { status }, select: lecturerSelect });
     await tx.auditEntry.create({ data: { actorId, lecturerId: id, action: "LECTURER_STATUS_CHANGED", details: {

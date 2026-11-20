@@ -20,6 +20,7 @@ import { eventsRouter } from "./routes/events.routes.js";
 import { reportExportRouter } from "./routes/report-export.routes.js";
 import { overviewRouter } from "./routes/overview.routes.js";
 import { HttpError } from "./utils/http-error.js";
+import { studentImportRouter } from "./routes/student-import.routes.js";
 import { Prisma } from "./generated/prisma/client.js";
 
 export const app = express();
@@ -37,6 +38,7 @@ app.use("/api/v1/events", eventsRouter);
 app.use("/api/v1/reports/exports", reportExportRouter);
 app.use("/api/v1", overviewRouter);
 app.use("/api/v1/admin/students", studentRouter);
+app.use("/api/v1/admin/student-imports", studentImportRouter);
 app.use("/api/v1/admin/lecturers", lecturerRouter);
 app.use("/api/v1/courses", courseRouter);
 app.use("/api/v1/class-sections", classSectionRouter);

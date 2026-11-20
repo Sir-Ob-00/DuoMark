@@ -126,6 +126,8 @@ model Staff {
   captureAttempts CaptureAttempt[]
   assignedSections ClassSection[]
   attendanceSessions AttendanceSession[]
+  lecturerInvitations LecturerInvitation[] @relation("InvitedLecturer")
+  sentInvitations LecturerInvitation[] @relation("InvitationAdmin")
 }
 
 model StaffSession {
@@ -135,6 +137,29 @@ model StaffSession {
   expiresAt DateTime
   @@index([staffId])
   @@index([expiresAt])
+}
+
+enum InvitationDelivery {
+  PENDING
+  ACCEPTED
+  UNCONFIRMED
+}
+
+model LecturerInvitation {
+  id String @id @default(uuid())
+  lecturerId String
+  lecturer Staff @relation("InvitedLecturer", fields: [lecturerId], references: [id], onDelete: Restrict)
+  adminId String
+  admin Staff @relation("InvitationAdmin", fields: [adminId], references: [id], onDelete: Restrict)
+  email String
+  tokenHash String @unique
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  consumedAt DateTime?
+  revokedAt DateTime?
+  acceptedAt DateTime?
+  delivery InvitationDelivery @default(PENDING)
+  @@index([lecturerId, createdAt])
 }
 
 model SignInLimit {
@@ -203,6 +228,7 @@ enum AuditAction {
   ROSTER_STUDENT_ADDED
   ROSTER_STUDENT_REMOVED
   LECTURER_INVITATION_ATTEMPTED
+  LECTURER_ACTIVATED
   TERMINAL_REGISTERED
   TERMINAL_UPDATED
   TERMINAL_AVAILABILITY_CHANGED

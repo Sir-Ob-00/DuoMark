@@ -9,6 +9,7 @@ export const auditLabels: Record<AuditAction, string> = {
   TERMINAL_REGISTERED: "Registered attendance terminal", TERMINAL_UPDATED: "Updated attendance terminal", TERMINAL_AVAILABILITY_CHANGED: "Changed terminal availability",
   SESSION_OPENED: "Opened attendance session", SESSION_CLOSED: "Closed attendance session", ATTENDANCE_RECORDED: "Recorded attendance check-in",
   REPORT_EXPORT_REPORTED: "Received client-reported CSV export",
+  LECTURER_ACTIVATED: "Activated lecturer account",
 };
 // No credential columns, raw details, enrollment state or verification payloads
 // are selected for the list. All actor/target labels are approved display fields.
@@ -84,9 +85,10 @@ export function approvedAuditMetadata(action: AuditAction, value: Prisma.JsonVal
   }
   if (action === "ATTENDANCE_RECORDED") { uuid("sessionId"); enums("serviceId", ["development-fake-fingerprint-capture"]); boolean("developmentOnly"); }
   if (action === "LECTURER_INVITATION_ATTEMPTED") {
-    enums("outcome", ["UNAVAILABLE", "REJECTED_INACTIVE", "REJECTED_ALREADY_PROVISIONED"]);
-    enums("deliveryStatus", ["NOT_ATTEMPTED"]); enums("provisioningStatus", ["NOT_ATTEMPTED"]);
+    enums("outcome", ["UNAVAILABLE", "REJECTED_INACTIVE", "REJECTED_ALREADY_PROVISIONED", "PREPARED", "ACCEPTED", "DELIVERY_UNCONFIRMED"]);
+    enums("deliveryStatus", ["NOT_ATTEMPTED", "PENDING", "ACCEPTED", "UNCONFIRMED"]); enums("provisioningStatus", ["NOT_ATTEMPTED"]);
   }
+  if (action === "LECTURER_ACTIVATED") enums("outcome", ["ACTIVATED"]);
   if (action === "REPORT_EXPORT_REPORTED") {
     result.clientReported = true;
     enums("role", ["ADMIN", "LECTURER"]);
